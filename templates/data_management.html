@@ -1,0 +1,224 @@
+{% extends "base.html" %}
+
+{% block title %}إدارة البيانات - نظام البحث في القوانين البحرينية{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+    <!-- العنوان الرئيسي -->
+    <div class="row mb-4">
+        <div class="col-12">
+            <h2 class="text-center mb-0">
+                <i class="fas fa-database me-2"></i>إدارة البيانات
+            </h2>
+            <p class="text-center text-muted">عرض وإدارة محتويات قاعدة البيانات القانونية</p>
+        </div>
+    </div>
+
+    <!-- الإحصائيات السريعة -->
+    <div class="row mb-4">
+        <div class="col-md-3">
+            <div class="stats-card text-center">
+                <div class="stats-number text-primary">{{ stats.documents_count }}</div>
+                <div class="stats-label">
+                    <i class="fas fa-file-alt me-2"></i>وثيقة
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="stats-card text-center">
+                <div class="stats-number text-success">{{ stats.get('pages_count', 0) }}</div>
+                <div class="stats-label">
+                    <i class="fas fa-file-text me-2"></i>صفحة
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="stats-card text-center">
+                <div class="stats-number text-info">{{ stats.articles_count }}</div>
+                <div class="stats-label">
+                    <i class="fas fa-paragraph me-2"></i>مادة
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="stats-card text-center">
+                <div class="stats-number text-warning">
+                    {{ stats.articles_by_type.get('article', 0) if stats.articles_by_type else 0 }}
+                </div>
+                <div class="stats-label">
+                    <i class="fas fa-balance-scale me-2"></i>مادة قانونية
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- قائمة الوثائق -->
+    <div class="row mb-4">
+        <div class="col-12">
+            <div class="card">
+                <div class="card-header">
+                    <h5 class="mb-0">
+                        <i class="fas fa-folder-open me-2"></i>الوثائق المفهرسة
+                    </h5>
+                </div>
+                <div class="card-body">
+                    {% if documents %}
+                    <div class="table-responsive">
+                        <table class="table table-striped table-hover">
+                            <thead class="table-dark">
+                                <tr>
+                                    <th>الرقم</th>
+                                    <th>اسم الوثيقة</th>
+                                    <th>العنوان</th>
+                                    <th>عدد الصفحات</th>
+                                    <th>تاريخ الإضافة</th>
+                                    <th>الإجراءات</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for doc in documents %}
+                                <tr>
+                                    <td>{{ doc.id }}</td>
+                                    <td>
+                                        <strong>{{ doc.name }}</strong>
+                                    </td>
+                                    <td>{{ doc.title or 'غير محدد' }}</td>
+                                    <td>
+                                        <span class="badge bg-info">{{ doc.pages_count or 0 }}</span>
+                                    </td>
+                                    <td>{{ doc.created_at[:19] if doc.created_at else 'غير محدد' }}</td>
+                                    <td>
+                                        <a href="/page/{{ doc.name|urlencode }}/1" 
+                                           class="btn btn-sm btn-outline-primary" 
+                                           target="_blank">
+                                            <i class="fas fa-eye me-1"></i>عرض
+                                        </a>
+                                    </td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                    {% else %}
+                    <div class="alert alert-info text-center">
+                        <i class="fas fa-info-circle me-2"></i>
+                        لا توجد وثائق مفهرسة حالياً
+                    </div>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- عينة من المواد -->
+    <div class="row">
+        <div class="col-12">
+            <div class="card">
+                <div class="card-header">
+                    <h5 class="mb-0">
+                        <i class="fas fa-list me-2"></i>عينة من المواد القانونية
+                    </h5>
+                </div>
+                <div class="card-body">
+                    {% if sample_articles %}
+                    <div class="row">
+                        {% for article in sample_articles %}
+                        <div class="col-md-6 col-lg-4 mb-3">
+                            <div class="card h-100 border-start border-primary border-3">
+                                <div class="card-body">
+                                    <h6 class="card-title text-primary">
+                                        {% if article.article_number %}
+                                            المادة {{ article.article_number }}
+                                        {% else %}
+                                            عنصر {{ article.id }}
+                                        {% endif %}
+                                    </h6>
+                                    
+                                    {% if article.title %}
+                                    <p class="card-text fw-bold">{{ article.title }}</p>
+                                    {% endif %}
+                                    
+                                    <p class="card-text small text-muted">
+                                        {{ article.content[:150] }}...
+                                    </p>
+                                    
+                                    <div class="d-flex justify-content-between align-items-center">
+                                        <small class="text-muted">
+                                            <i class="fas fa-file me-1"></i>{{ article.document_name }}
+                                        </small>
+                                        <div>
+                                            <span class="badge bg-secondary me-1">
+                                                ص{{ article.page_number }}
+                                            </span>
+                                            <span class="badge bg-primary">
+                                                {{ article.article_type }}
+                                            </span>
+                                        </div>
+                                    </div>
+                                    
+                                    <div class="mt-2">
+                                        <a href="/page/{{ article.document_name|urlencode }}/{{ article.page_number }}" 
+                                           class="btn btn-sm btn-outline-primary" 
+                                           target="_blank">
+                                            <i class="fas fa-external-link-alt me-1"></i>عرض الصفحة
+                                        </a>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        {% endfor %}
+                    </div>
+                    {% else %}
+                    <div class="alert alert-info text-center">
+                        <i class="fas fa-info-circle me-2"></i>
+                        لا توجد مواد قانونية مفهرسة حالياً
+                    </div>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- معلومات إضافية -->
+    <div class="row mt-4">
+        <div class="col-12">
+            <div class="alert alert-light">
+                <h6><i class="fas fa-info-circle me-2"></i>معلومات مهمة:</h6>
+                <ul class="mb-0">
+                    <li>يتم تحديث البيانات تلقائياً عند إضافة وثائق جديدة</li>
+                    <li>يمكن النقر على "عرض" لمشاهدة الوثيقة كاملة</li>
+                    <li>البيانات مخزنة في قاعدة بيانات SQLite محلية</li>
+                    <li>النظام يدعم البحث النصي الكامل (FTS5)</li>
+                </ul>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+// تحسين تجربة المستخدم
+document.addEventListener('DOMContentLoaded', function() {
+    // إضافة تأثيرات hover للبطاقات
+    const cards = document.querySelectorAll('.card');
+    cards.forEach(card => {
+        card.addEventListener('mouseenter', function() {
+            this.style.transform = 'translateY(-2px)';
+            this.style.boxShadow = '0 4px 8px rgba(0,0,0,0.1)';
+        });
+        
+        card.addEventListener('mouseleave', function() {
+            this.style.transform = 'translateY(0)';
+            this.style.boxShadow = '';
+        });
+    });
+    
+    // إضافة tooltips للأزرار
+    const buttons = document.querySelectorAll('[data-bs-toggle="tooltip"]');
+    buttons.forEach(button => {
+        new bootstrap.Tooltip(button);
+    });
+});
+</script>
+{% endblock %}

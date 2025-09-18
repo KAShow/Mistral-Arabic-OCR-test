@@ -401,6 +401,29 @@ class EnhancedLegalSearchEngine:
         
         return stats
 
+    def get_all_documents(self):
+        """جلب جميع الوثائق من قاعدة البيانات"""
+        cursor = self.conn.execute('''
+        SELECT id, name, title, file_path, pages_count, created_at
+        FROM documents
+        ORDER BY created_at DESC
+        ''')
+        return [dict(row) for row in cursor.fetchall()]
+
+    def get_sample_articles(self, limit: int = 10):
+        """جلب عينة من المواد القانونية"""
+        cursor = self.conn.execute('''
+        SELECT 
+            a.id, a.article_number, a.title, a.content,
+            a.article_type, a.page_number,
+            d.name as document_name
+        FROM articles a
+        JOIN documents d ON a.document_id = d.id
+        ORDER BY a.id DESC
+        LIMIT ?
+        ''', (limit,))
+        return [dict(row) for row in cursor.fetchall()]
+
     def close(self):
         """إغلاق الاتصال بقاعدة البيانات"""
         if self.conn:

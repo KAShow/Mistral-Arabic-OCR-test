@@ -265,6 +265,32 @@ async def get_article(article_id: int):
     
     return dict(row)
 
+@app.get("/data-management", response_class=HTMLResponse)
+async def data_management(request: Request):
+    """صفحة إدارة البيانات"""
+    try:
+        engine = get_enhanced_search_engine()
+        
+        # جلب جميع الوثائق
+        documents = engine.get_all_documents()
+        
+        # جلب الإحصائيات
+        stats = engine.get_statistics()
+        
+        # جلب عينة من المواد
+        sample_articles = engine.get_sample_articles(limit=10)
+        
+        return templates.TemplateResponse("data_management.html", {
+            "request": request,
+            "documents": documents,
+            "stats": stats,
+            "sample_articles": sample_articles
+        })
+    
+    except Exception as e:
+        print(f"خطأ في تحميل صفحة إدارة البيانات: {e}")
+        raise HTTPException(status_code=500, detail="خطأ في تحميل البيانات")
+
 # معالجة الأخطاء
 @app.exception_handler(404)
 async def not_found_handler(request: Request, exc):
