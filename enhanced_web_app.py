@@ -13,6 +13,7 @@ from pydantic import BaseModel
 from typing import List, Optional
 import os
 import uvicorn
+from urllib.parse import unquote, quote
 from legal_search import LegalSearchEngine
 from enhanced_legal_search import EnhancedLegalSearchEngine
 
@@ -33,6 +34,19 @@ if not os.path.exists("templates"):
 
 app.mount("/static", StaticFiles(directory="static"), name="static")
 templates = Jinja2Templates(directory="templates")
+
+# إضافة دوال مساعدة للقوالب
+def url_encode(text):
+    """ترميز النص للـ URL"""
+    return quote(str(text), safe='')
+
+def url_decode(text):
+    """فك ترميز النص من الـ URL"""
+    return unquote(str(text))
+
+# تسجيل الدوال في Jinja2
+templates.env.filters['urlencode'] = url_encode
+templates.env.filters['urldecode'] = url_decode
 
 # إنشاء محركي البحث
 search_engine = None
@@ -90,10 +104,12 @@ async def home(request: Request):
     engine = get_search_engine()
     stats = engine.get_statistics()
     
-    return templates.TemplateResponse("index.html", {
+    response = templates.TemplateResponse("index.html", {
         "request": request,
         "stats": stats
     })
+    response.headers["Content-Type"] = "text/html; charset=utf-8"
+    return response
 
 @app.get("/api/stats", response_model=Statistics)
 async def get_statistics():
@@ -160,21 +176,25 @@ async def search_form(request: Request, query: str = Form(...)):
     engine = get_enhanced_search_engine()
     
     if not query.strip():
-        return templates.TemplateResponse("index.html", {
+        response = templates.TemplateResponse("index.html", {
             "request": request,
             "error": "يرجى إدخال كلمة أو عبارة للبحث",
             "stats": engine.get_statistics()
         })
+        response.headers["Content-Type"] = "text/html; charset=utf-8"
+        return response
     
     # تنفيذ البحث
     results = engine.search_enhanced(query, limit=20)
     
-    return templates.TemplateResponse("results.html", {
+    response = templates.TemplateResponse("results.html", {
         "request": request,
         "query": query,
         "results": results,
         "total_results": len(results)
     })
+    response.headers["Content-Type"] = "text/html; charset=utf-8"
+    return response
 
 # المسارات الجديدة لعرض الصفحات الكاملة
 
@@ -183,8 +203,12 @@ async def view_full_page(request: Request, document_name: str, page_number: int,
     """عرض الصفحة الكاملة مع تمييز النص"""
     engine = get_enhanced_search_engine()
     
+    # فك تشفير اسم الوثيقة والنص المميز
+    decoded_document_name = unquote(document_name)
+    decoded_highlight = unquote(highlight) if highlight else ""
+    
     # الحصول على محتوى الصفحة
-    page_data = engine.get_page_with_highlighted_text(document_name, page_number, highlight)
+    page_data = engine.get_page_with_highlighted_text(decoded_document_name, page_number, decoded_highlight)
     
     if not page_data:
         raise HTTPException(status_code=404, detail="الصفحة غير موجودة")
@@ -192,21 +216,27 @@ async def view_full_page(request: Request, document_name: str, page_number: int,
     # الحصول على معلومات الوثيقة
     stats = engine.get_statistics()
     
-    return templates.TemplateResponse("page_viewer.html", {
+    response = templates.TemplateResponse("page_viewer.html", {
         "request": request,
         "page_data": page_data,
-        "document_name": document_name,
+        "document_name": decoded_document_name,
         "page_number": page_number,
-        "highlight": highlight,
+        "highlight": decoded_highlight,
         "total_pages": stats.get('pages_count', 1)
     })
+    response.headers["Content-Type"] = "text/html; charset=utf-8"
+    return response
 
 @app.get("/api/page/{document_name}/{page_number}")
 async def get_page_api(document_name: str, page_number: int, highlight: str = ""):
     """API للحصول على محتوى الصفحة"""
     engine = get_enhanced_search_engine()
     
-    page_data = engine.get_page_with_highlighted_text(document_name, page_number, highlight)
+    # فك تشفير اسم الوثيقة والنص المميز
+    decoded_document_name = unquote(document_name)
+    decoded_highlight = unquote(highlight) if highlight else ""
+    
+    page_data = engine.get_page_with_highlighted_text(decoded_document_name, page_number, decoded_highlight)
     
     if not page_data:
         raise HTTPException(status_code=404, detail="الصفحة غير موجودة")
