@@ -1,0 +1,22 @@
+{% extends "base.html" %}
+
+{% block title %}خطأ في الخادم - 500{% endblock %}
+
+{% block content %}
+<div class="search-container text-center">
+    <div class="py-5">
+        <i class="fas fa-exclamation-triangle fa-5x text-danger mb-4"></i>
+        <h2 class="text-danger mb-3">خطأ في الخادم</h2>
+        <p class="text-muted mb-4">حدث خطأ غير متوقع. يرجى المحاولة مرة أخرى لاحقاً.</p>
+        
+        <div class="d-flex justify-content-center gap-3">
+            <a href="/" class="btn btn-primary">
+                <i class="fas fa-home me-2"></i>الصفحة الرئيسية
+            </a>
+            <button onclick="location.reload()" class="btn btn-secondary">
+                <i class="fas fa-redo me-2"></i>إعادة المحاولة
+            </button>
+        </div>
+    </div>
+</div>
+{% endblock %}

@@ -1,0 +1,146 @@
+{% extends "base.html" %}
+
+{% block title %}الصفحة الرئيسية - نظام البحث في القوانين البحرينية{% endblock %}
+
+{% block content %}
+<div class="search-container">
+    <!-- نموذج البحث -->
+    <form method="post" action="/search" id="searchForm">
+        <div class="search-box">
+            <div class="d-flex">
+                <input 
+                    type="text" 
+                    name="query" 
+                    class="search-input" 
+                    placeholder="ابحث في القوانين... (مثال: العامل، الأجر، صاحب العمل)"
+                    required
+                    autocomplete="off"
+                >
+                <button type="submit" class="search-btn">
+                    <i class="fas fa-search me-2"></i>بحث
+                </button>
+            </div>
+        </div>
+    </form>
+    
+    <!-- رسائل الأخطاء -->
+    {% if error %}
+    <div class="alert alert-danger mt-3">
+        <i class="fas fa-exclamation-triangle me-2"></i>{{ error }}
+    </div>
+    {% endif %}
+    
+    <!-- الإحصائيات -->
+    <div class="row mt-4">
+        <div class="col-md-4">
+            <div class="stats-card text-center">
+                <div class="stats-number">{{ stats.documents_count }}</div>
+                <div class="stats-label">
+                    <i class="fas fa-file-alt me-2"></i>وثيقة قانونية
+                </div>
+            </div>
+        </div>
+        
+        <div class="col-md-4">
+            <div class="stats-card text-center">
+                <div class="stats-number">{{ stats.articles_count }}</div>
+                <div class="stats-label">
+                    <i class="fas fa-paragraph me-2"></i>مادة ونص
+                </div>
+            </div>
+        </div>
+        
+        <div class="col-md-4">
+            <div class="stats-card text-center">
+                <div class="stats-number">
+                    {% if stats.articles_by_type %}
+                        {{ stats.articles_by_type.get('article', 0) }}
+                    {% else %}
+                        0
+                    {% endif %}
+                </div>
+                <div class="stats-label">
+                    <i class="fas fa-balance-scale me-2"></i>مادة قانونية
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- أمثلة البحث -->
+    <div class="mt-4">
+        <h4 class="text-center mb-3">
+            <i class="fas fa-lightbulb me-2"></i>أمثلة للبحث
+        </h4>
+        
+        <div class="row">
+            <div class="col-md-6">
+                <div class="stats-card">
+                    <h6><i class="fas fa-user-tie me-2"></i>المفاهيم الأساسية:</h6>
+                    <div class="d-flex flex-wrap gap-2 mt-2">
+                        <span class="badge bg-primary search-example" data-query="العامل">العامل</span>
+                        <span class="badge bg-primary search-example" data-query="صاحب العمل">صاحب العمل</span>
+                        <span class="badge bg-primary search-example" data-query="الأجر">الأجر</span>
+                        <span class="badge bg-primary search-example" data-query="عقد العمل">عقد العمل</span>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="col-md-6">
+                <div class="stats-card">
+                    <h6><i class="fas fa-cogs me-2"></i>المصطلحات المتقدمة:</h6>
+                    <div class="d-flex flex-wrap gap-2 mt-2">
+                        <span class="badge bg-success search-example" data-query="الأجر الأساسي">الأجر الأساسي</span>
+                        <span class="badge bg-success search-example" data-query="التأمين الاجتماعي">التأمين الاجتماعي</span>
+                        <span class="badge bg-success search-example" data-query="إصابة العمل">إصابة العمل</span>
+                        <span class="badge bg-success search-example" data-query="الليل">ساعات الليل</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- معلومات إضافية -->
+    <div class="mt-4">
+        <div class="alert alert-info">
+            <h6><i class="fas fa-info-circle me-2"></i>كيفية استخدام النظام:</h6>
+            <ul class="mb-0">
+                <li>اكتب كلمة أو عبارة في مربع البحث واضغط "بحث"</li>
+                <li>يمكنك البحث بكلمة واحدة مثل "العامل" أو عبارة كاملة مثل "عقد العمل"</li>
+                <li>النتائج مرتبة حسب درجة التطابق مع استعلامك</li>
+                <li>اضغط على الأمثلة أعلاه لتجربة البحث السريع</li>
+            </ul>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+// إضافة وظيفة البحث السريع للأمثلة
+document.querySelectorAll('.search-example').forEach(function(badge) {
+    badge.style.cursor = 'pointer';
+    badge.addEventListener('click', function() {
+        const query = this.getAttribute('data-query');
+        document.querySelector('input[name="query"]').value = query;
+        document.getElementById('searchForm').submit();
+    });
+});
+
+// تحسين تجربة المستخدم
+document.querySelector('input[name="query"]').addEventListener('keypress', function(e) {
+    if (e.key === 'Enter') {
+        e.preventDefault();
+        document.getElementById('searchForm').submit();
+    }
+});
+
+// إضافة تأثيرات بصرية
+document.querySelector('.search-input').addEventListener('focus', function() {
+    this.parentElement.parentElement.style.transform = 'scale(1.02)';
+});
+
+document.querySelector('.search-input').addEventListener('blur', function() {
+    this.parentElement.parentElement.style.transform = 'scale(1)';
+});
+</script>
+{% endblock %}

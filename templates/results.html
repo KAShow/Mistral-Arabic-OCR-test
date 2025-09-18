@@ -1,0 +1,208 @@
+{% extends "base.html" %}
+
+{% block title %}نتائج البحث: {{ query }} - نظام البحث في القوانين البحرينية{% endblock %}
+
+{% block content %}
+<div class="search-container">
+    <!-- نموذج البحث في أعلى الصفحة -->
+    <form method="post" action="/search" id="searchForm">
+        <div class="search-box">
+            <div class="d-flex">
+                <input 
+                    type="text" 
+                    name="query" 
+                    class="search-input" 
+                    value="{{ query }}"
+                    placeholder="ابحث في القوانين..."
+                    required
+                    autocomplete="off"
+                >
+                <button type="submit" class="search-btn">
+                    <i class="fas fa-search me-2"></i>بحث
+                </button>
+            </div>
+        </div>
+    </form>
+    
+    <!-- معلومات النتائج -->
+    <div class="mt-4">
+        <div class="d-flex justify-content-between align-items-center mb-3">
+            <h4>
+                <i class="fas fa-search-plus me-2"></i>
+                نتائج البحث عن: <span class="text-primary">"{{ query }}"</span>
+            </h4>
+            <span class="badge bg-primary fs-6">{{ total_results }} نتيجة</span>
+        </div>
+        
+        {% if total_results == 0 %}
+        <!-- لا توجد نتائج -->
+        <div class="alert alert-warning">
+            <h5><i class="fas fa-exclamation-triangle me-2"></i>لم يتم العثور على نتائج</h5>
+            <p class="mb-0">لم نتمكن من العثور على أي نتائج تطابق بحثك "<strong>{{ query }}</strong>"</p>
+            
+            <div class="mt-3">
+                <h6>جرب النصائح التالية:</h6>
+                <ul>
+                    <li>تأكد من صحة الإملاء</li>
+                    <li>استخدم كلمات أبسط أو أكثر عمومية</li>
+                    <li>جرب مرادفات أو كلمات مشابهة</li>
+                    <li>قلل من عدد الكلمات في البحث</li>
+                </ul>
+            </div>
+        </div>
+        
+        <!-- أمثلة للبحث -->
+        <div class="mt-4">
+            <h5><i class="fas fa-lightbulb me-2"></i>جرب هذه الاستعلامات:</h5>
+            <div class="d-flex flex-wrap gap-2">
+                <span class="badge bg-secondary search-example" data-query="العامل">العامل</span>
+                <span class="badge bg-secondary search-example" data-query="صاحب العمل">صاحب العمل</span>
+                <span class="badge bg-secondary search-example" data-query="الأجر">الأجر</span>
+                <span class="badge bg-secondary search-example" data-query="عقد العمل">عقد العمل</span>
+                <span class="badge bg-secondary search-example" data-query="الوزارة">الوزارة</span>
+            </div>
+        </div>
+        
+        {% else %}
+        <!-- النتائج -->
+        {% for result in results %}
+        <div class="result-card">
+            <!-- معلومات المادة -->
+            <div class="result-meta">
+                <span><i class="fas fa-file-alt me-1"></i>{{ result.document_name }}</span>
+                <span><i class="fas fa-file-pdf me-1"></i>صفحة {{ result.page_number }}</span>
+                
+                {% if result.article_number %}
+                <span><i class="fas fa-paragraph me-1"></i>المادة ({{ result.article_number }})</span>
+                {% endif %}
+                
+                {% if result.chapter %}
+                <span><i class="fas fa-book me-1"></i>{{ result.chapter }}</span>
+                {% endif %}
+                
+                {% if result.section %}
+                <span><i class="fas fa-bookmark me-1"></i>{{ result.section }}</span>
+                {% endif %}
+                
+                <span class="badge 
+                    {% if result.article_type == 'article' %}bg-success
+                    {% elif result.article_type == 'definition' %}bg-info
+                    {% else %}bg-secondary
+                    {% endif %}">
+                    {% if result.article_type == 'article' %}مادة قانونية
+                    {% elif result.article_type == 'definition' %}تعريف
+                    {% else %}نص عام
+                    {% endif %}
+                </span>
+            </div>
+            
+            <!-- العنوان إذا كان متوفراً -->
+            {% if result.title %}
+            <h6 class="text-primary mb-2">{{ result.title }}</h6>
+            {% endif %}
+            
+            <!-- المحتوى -->
+            <div class="result-content">
+                {% if result.highlighted_content %}
+                    {{ result.highlighted_content | safe }}
+                {% else %}
+                    {{ result.content }}
+                {% endif %}
+            </div>
+            
+            <!-- رابط للمادة الكاملة -->
+            <div class="mt-2">
+                <a href="/article/{{ result.id }}" class="btn btn-outline-primary btn-sm">
+                    <i class="fas fa-eye me-1"></i>عرض التفاصيل الكاملة
+                </a>
+            </div>
+        </div>
+        {% endfor %}
+        
+        <!-- رسالة في نهاية النتائج -->
+        <div class="mt-4">
+            <div class="alert alert-info">
+                <i class="fas fa-info-circle me-2"></i>
+                تم عرض {{ total_results }} نتيجة. 
+                إذا لم تجد ما تبحث عنه، جرب كلمات مختلفة أو أكثر تحديداً.
+            </div>
+        </div>
+        {% endif %}
+    </div>
+    
+    <!-- زر العودة للرئيسية -->
+    <div class="text-center mt-4">
+        <a href="/" class="btn btn-secondary">
+            <i class="fas fa-home me-2"></i>العودة للصفحة الرئيسية
+        </a>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+// إضافة وظيفة البحث السريع للأمثلة
+document.querySelectorAll('.search-example').forEach(function(badge) {
+    badge.style.cursor = 'pointer';
+    badge.addEventListener('click', function() {
+        const query = this.getAttribute('data-query');
+        document.querySelector('input[name="query"]').value = query;
+        document.getElementById('searchForm').submit();
+    });
+});
+
+// تحسين عرض النتائج
+document.querySelectorAll('.result-content').forEach(function(content) {
+    // تحديد طول المحتوى المعروض
+    const maxLength = 300;
+    if (content.textContent.length > maxLength) {
+        const originalText = content.innerHTML;
+        const shortText = content.textContent.substring(0, maxLength) + '...';
+        
+        // إنشاء زر "المزيد"
+        const moreBtn = document.createElement('button');
+        moreBtn.className = 'btn btn-link btn-sm p-0 ms-2';
+        moreBtn.innerHTML = '<i class="fas fa-chevron-down me-1"></i>المزيد';
+        moreBtn.onclick = function() {
+            if (content.dataset.expanded === 'true') {
+                content.innerHTML = shortText;
+                content.appendChild(moreBtn);
+                moreBtn.innerHTML = '<i class="fas fa-chevron-down me-1"></i>المزيد';
+                content.dataset.expanded = 'false';
+            } else {
+                content.innerHTML = originalText;
+                const lessBtn = document.createElement('button');
+                lessBtn.className = 'btn btn-link btn-sm p-0 ms-2';
+                lessBtn.innerHTML = '<i class="fas fa-chevron-up me-1"></i>أقل';
+                lessBtn.onclick = function() {
+                    content.innerHTML = shortText;
+                    content.appendChild(moreBtn);
+                    content.dataset.expanded = 'false';
+                };
+                content.appendChild(lessBtn);
+                content.dataset.expanded = 'true';
+            }
+        };
+        
+        content.innerHTML = shortText;
+        content.appendChild(moreBtn);
+        content.dataset.expanded = 'false';
+    }
+});
+
+// تمييز كلمات البحث في النتائج
+const searchQuery = "{{ query }}".toLowerCase();
+const searchWords = searchQuery.split(' ').filter(word => word.length > 2);
+
+document.querySelectorAll('.result-content').forEach(function(content) {
+    let html = content.innerHTML;
+    
+    searchWords.forEach(function(word) {
+        const regex = new RegExp(`(${word})`, 'gi');
+        html = html.replace(regex, '<mark class="highlight">$1</mark>');
+    });
+    
+    content.innerHTML = html;
+});
+</script>
+{% endblock %}
