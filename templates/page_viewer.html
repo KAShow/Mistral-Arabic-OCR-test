@@ -1,0 +1,336 @@
+﻿{% extends "base.html" %}
+
+{% block title %}{{ document_name }} - صفحة {{ page_number }}{% endblock %}
+
+{% block extra_css %}
+<style>
+    .page-viewer-container {
+        max-width: 900px;
+        margin: 0 auto;
+        padding: 2rem;
+    }
+    
+    .page-header {
+        background: linear-gradient(45deg, #1e3c72, #2a5298);
+        color: white;
+        padding: 2rem;
+        border-radius: 15px;
+        margin-bottom: 2rem;
+        text-align: center;
+    }
+    
+    .page-navigation {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 2rem;
+        padding: 1rem;
+        background: #f8f9fa;
+        border-radius: 10px;
+        border: 1px solid #e9ecef;
+    }
+    
+    .page-content {
+        background: white;
+        padding: 3rem;
+        border-radius: 15px;
+        box-shadow: 0 10px 30px rgba(0,0,0,0.1);
+        border: 1px solid #e9ecef;
+        line-height: 2;
+        font-size: 1.1rem;
+    }
+    
+    .page-content h1, .page-content h2, .page-content h3 {
+        color: #2a5298;
+        margin: 2rem 0 1rem 0;
+        font-weight: 600;
+    }
+    
+    .page-content h1 {
+        font-size: 2rem;
+        border-bottom: 3px solid #2a5298;
+        padding-bottom: 0.5rem;
+    }
+    
+    .page-content h2 {
+        font-size: 1.5rem;
+    }
+    
+    .page-content h3 {
+        font-size: 1.3rem;
+    }
+    
+    .page-content p {
+        margin-bottom: 1.5rem;
+        text-align: justify;
+    }
+    
+    .page-content table {
+        width: 100%;
+        border-collapse: collapse;
+        margin: 1.5rem 0;
+    }
+    
+    .page-content table td {
+        padding: 0.75rem;
+        border: 1px solid #dee2e6;
+        vertical-align: top;
+    }
+    
+    .highlight {
+        background: linear-gradient(120deg, #ffd700 0%, #ffed4e 100%);
+        padding: 0.2rem 0.4rem;
+        border-radius: 4px;
+        font-weight: 600;
+        box-shadow: 0 2px 4px rgba(255, 215, 0, 0.3);
+    }
+    
+    .article-marker {
+        background: linear-gradient(45deg, #28a745, #20c997);
+        color: white;
+        padding: 0.3rem 0.8rem;
+        border-radius: 20px;
+        font-size: 0.9rem;
+        font-weight: 600;
+        display: inline-block;
+        margin: 0.5rem 0;
+    }
+    
+    .page-controls {
+        position: fixed;
+        top: 50%;
+        transform: translateY(-50%);
+        z-index: 1000;
+    }
+    
+    .page-controls.left {
+        left: 20px;
+    }
+    
+    .page-controls.right {
+        right: 20px;
+    }
+    
+    .control-btn {
+        background: linear-gradient(45deg, #1e3c72, #2a5298);
+        color: white;
+        border: none;
+        border-radius: 50%;
+        width: 60px;
+        height: 60px;
+        font-size: 1.5rem;
+        cursor: pointer;
+        box-shadow: 0 5px 15px rgba(42, 82, 152, 0.3);
+        transition: all 0.3s ease;
+    }
+    
+    .control-btn:hover {
+        transform: scale(1.1);
+        box-shadow: 0 8px 25px rgba(42, 82, 152, 0.5);
+    }
+    
+    .control-btn:disabled {
+        background: #6c757d;
+        cursor: not-allowed;
+        transform: none;
+        box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+    }
+    
+    .page-actions {
+        display: flex;
+        gap: 1rem;
+        justify-content: center;
+        margin-top: 2rem;
+        flex-wrap: wrap;
+    }
+    
+    .zoom-controls {
+        display: flex;
+        gap: 0.5rem;
+        align-items: center;
+    }
+    
+    @media (max-width: 768px) {
+        .page-viewer-container {
+            padding: 1rem;
+        }
+        
+        .page-content {
+            padding: 1.5rem;
+            font-size: 1rem;
+        }
+        
+        .page-controls {
+            display: none;
+        }
+        
+        .page-navigation {
+            flex-direction: column;
+            gap: 1rem;
+        }
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="page-viewer-container">
+    <!-- رأس الصفحة -->
+    <div class="page-header">
+        <h1><i class="fas fa-file-alt me-2"></i>{{ page_data.document_title or document_name }}</h1>
+        <p><i class="fas fa-bookmark me-2"></i>صفحة {{ page_number }} من {{ total_pages }}</p>
+    </div>
+    
+    <!-- شريط التنقل -->
+    <div class="page-navigation">
+        <div>
+            <a href="/page/{{ document_name }}/{{ page_number - 1 }}{% if highlight %}?highlight={{ highlight }}{% endif %}" 
+               class="btn btn-outline-primary {% if page_number <= 1 %}disabled{% endif %}">
+                <i class="fas fa-chevron-right me-1"></i>الصفحة السابقة
+            </a>
+        </div>
+        
+        <div class="text-center">
+            <span class="badge bg-primary fs-6">صفحة {{ page_number }}</span>
+            {% if highlight %}
+            <span class="badge bg-warning text-dark ms-2">البحث: "{{ highlight }}"</span>
+            {% endif %}
+        </div>
+        
+        <div>
+            <a href="/page/{{ document_name }}/{{ page_number + 1 }}{% if highlight %}?highlight={{ highlight }}{% endif %}" 
+               class="btn btn-outline-primary {% if page_number >= total_pages %}disabled{% endif %}">
+                الصفحة التالية<i class="fas fa-chevron-left ms-1"></i>
+            </a>
+        </div>
+    </div>
+    
+    <!-- محتوى الصفحة -->
+    <div class="page-content" id="pageContent">
+        {% if page_data.highlighted_content %}
+            {{ page_data.highlighted_content | safe | replace('\n', '<br>') | safe }}
+        {% else %}
+            {{ page_data.content | replace('\n', '<br>') | safe }}
+        {% endif %}
+    </div>
+    
+    <!-- أدوات التحكم -->
+    <div class="page-actions">
+        <div class="zoom-controls">
+            <button class="btn btn-outline-secondary" onclick="zoomOut()">
+                <i class="fas fa-search-minus"></i> تصغير
+            </button>
+            <span class="badge bg-secondary" id="zoomLevel">100%</span>
+            <button class="btn btn-outline-secondary" onclick="zoomIn()">
+                <i class="fas fa-search-plus"></i> تكبير
+            </button>
+        </div>
+        
+        <button class="btn btn-outline-success" onclick="printPage()">
+            <i class="fas fa-print me-1"></i>طباعة
+        </button>
+        
+        <button class="btn btn-outline-info" onclick="copyToClipboard()">
+            <i class="fas fa-copy me-1"></i>نسخ النص
+        </button>
+        
+        <a href="/" class="btn btn-outline-primary">
+            <i class="fas fa-search me-1"></i>بحث جديد
+        </a>
+        
+        <button class="btn btn-outline-secondary" onclick="history.back()">
+            <i class="fas fa-arrow-right me-1"></i>العودة
+        </button>
+    </div>
+</div>
+
+<!-- أزرار التنقل الجانبية -->
+<div class="page-controls left">
+    <button class="control-btn" onclick="previousPage()" {% if page_number <= 1 %}disabled{% endif %}>
+        <i class="fas fa-chevron-right"></i>
+    </button>
+</div>
+
+<div class="page-controls right">
+    <button class="control-btn" onclick="nextPage()" {% if page_number >= total_pages %}disabled{% endif %}>
+        <i class="fas fa-chevron-left"></i>
+    </button>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+let currentZoom = 100;
+const pageContent = document.getElementById('pageContent');
+
+function zoomIn() {
+    if (currentZoom < 200) {
+        currentZoom += 10;
+        updateZoom();
+    }
+}
+
+function zoomOut() {
+    if (currentZoom > 70) {
+        currentZoom -= 10;
+        updateZoom();
+    }
+}
+
+function updateZoom() {
+    pageContent.style.fontSize = (currentZoom / 100) + 'em';
+    document.getElementById('zoomLevel').textContent = currentZoom + '%';
+}
+
+function printPage() {
+    window.print();
+}
+
+function copyToClipboard() {
+    const text = pageContent.innerText;
+    navigator.clipboard.writeText(text).then(() => {
+        alert('تم نسخ النص بنجاح!');
+    }).catch(() => {
+        alert('فشل في نسخ النص');
+    });
+}
+
+function previousPage() {
+    {% if page_number > 1 %}
+    window.location.href = '/page/{{ document_name }}/{{ page_number - 1 }}{% if highlight %}?highlight={{ highlight }}{% endif %}';
+    {% endif %}
+}
+
+function nextPage() {
+    {% if page_number < total_pages %}
+    window.location.href = '/page/{{ document_name }}/{{ page_number + 1 }}{% if highlight %}?highlight={{ highlight }}{% endif %}';
+    {% endif %}
+}
+
+// اختصارات لوحة المفاتيح
+document.addEventListener('keydown', function(e) {
+    if (e.key === 'ArrowRight' && {{ page_number }} > 1) {
+        previousPage();
+    } else if (e.key === 'ArrowLeft' && {{ page_number }} < {{ total_pages }}) {
+        nextPage();
+    } else if (e.key === '+' || e.key === '=') {
+        e.preventDefault();
+        zoomIn();
+    } else if (e.key === '-') {
+        e.preventDefault();
+        zoomOut();
+    }
+});
+
+// تحسين عرض الجداول
+document.querySelectorAll('table').forEach(table => {
+    table.classList.add('table', 'table-bordered', 'table-hover');
+});
+
+// تحسين عرض المواد القانونية
+document.querySelectorAll('strong').forEach(element => {
+    if (element.textContent.includes('المادة')) {
+        element.classList.add('article-marker');
+    }
+});
+</script>
+{% endblock %}
