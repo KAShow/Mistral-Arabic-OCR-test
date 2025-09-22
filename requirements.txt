@@ -1,0 +1,11 @@
+# المتطلبات الأساسية الموجودة
+mistralai
+python-dotenv
+
+# متطلبات جديدة لـ Supabase والفهرسة
+supabase
+postgrest
+
+# معالجة النصوص العربية (اختيارية)
+arabic-reshaper
+python-bidi
