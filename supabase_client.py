@@ -6,6 +6,7 @@
 import os
 import json
 import uuid
+import requests
 from datetime import datetime
 from typing import Dict, List, Optional, Any
 from supabase import create_client, Client
@@ -258,6 +259,217 @@ class SupabaseManager:
         except Exception as e:
             print(f"خطأ في البحث: {e}")
             return []
+    
+    def upload_pdf_file(self, file_path: str, custom_filename: str = None) -> str:
+        """
+        رفع ملف PDF إلى Supabase Storage وإنشاء سجل في قاعدة البيانات
+        
+        Args:
+            file_path: مسار الملف المحلي
+            custom_filename: اسم مخصص للملف (اختياري)
+        
+        Returns:
+            معرف الوثيقة الجديدة
+        """
+        try:
+            if not os.path.exists(file_path):
+                raise FileNotFoundError(f"الملف غير موجود: {file_path}")
+            
+            # تحضير معلومات الملف
+            file_size = os.path.getsize(file_path)
+            original_filename = os.path.basename(file_path)
+            
+            # إنشاء اسم فريد للملف
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            
+            # اسم الملف الموحد (نفس الاسم في قاعدة البيانات و Storage)
+            if custom_filename:
+                filename = f"{timestamp}_{custom_filename}"
+            else:
+                filename = f"{timestamp}_{original_filename}"
+            
+            storage_path = f"documents/{filename}"
+            
+            # قراءة الملف
+            with open(file_path, 'rb') as file:
+                file_content = file.read()
+            
+            # رفع الملف إلى Storage
+            storage_result = self.supabase.storage.from_("documents").upload(
+                path=storage_path,
+                file=file_content,
+                file_options={"content-type": "application/pdf"}
+            )
+            
+            if hasattr(storage_result, 'error') and storage_result.error:
+                raise Exception(f"فشل رفع الملف: {storage_result.error}")
+            
+            # إنشاء سجل في قاعدة البيانات
+            document_id = self.create_document(
+                filename=filename,
+                original_path=file_path,
+                file_size=file_size,
+                metadata={"storage_path": storage_path}
+            )
+            
+            print(f"✅ تم رفع الملف بنجاح: {filename}")
+            print(f"📁 مسار Storage: {storage_path}")
+            print(f"🆔 معرف الوثيقة: {document_id}")
+            print(f"🔗 الاسم موحد في قاعدة البيانات و Storage")
+            
+            return document_id
+            
+        except Exception as e:
+            print(f"❌ خطأ في رفع الملف: {e}")
+            raise
+    
+    def trigger_processing(self, document_id: str, file_path: str, filename: str) -> bool:
+        """
+        استدعاء Edge Function لمعالجة الوثيقة
+        
+        Args:
+            document_id: معرف الوثيقة
+            file_path: مسار الملف (للمعلومات)
+            filename: اسم الملف
+        
+        Returns:
+            True إذا تم استدعاء المعالجة بنجاح
+        """
+        try:
+            # تحديث حالة الوثيقة إلى "processing"
+            self.update_document_status(document_id, "processing")
+            
+            # جلب اسم الملف الموحد من قاعدة البيانات
+            doc_result = self.supabase.table("documents").select("filename").eq("id", document_id).execute()
+            
+            unified_filename = filename  # افتراضي
+            if doc_result.data:
+                unified_filename = doc_result.data[0]["filename"]
+                print(f"🔗 استخدام الاسم الموحد: {unified_filename}")
+            
+            # مسار Storage باستخدام الاسم الموحد
+            storage_path = f"documents/{unified_filename}"
+            
+            # بيانات الطلب للـ Edge Function
+            payload = {
+                "documentId": document_id,
+                "filePath": storage_path,  # مسار Storage الصحيح
+                "fileName": unified_filename
+            }
+            
+            # استدعاء Edge Function
+            edge_function_url = f"{self.url}/functions/v1/process-document"
+            headers = {
+                "Authorization": f"Bearer {self.key}",
+                "Content-Type": "application/json"
+            }
+            
+            print(f"🔄 بدء معالجة الوثيقة: {filename}")
+            
+            response = requests.post(
+                edge_function_url,
+                json=payload,
+                headers=headers,
+                timeout=300  # 5 دقائق timeout
+            )
+            
+            if response.status_code == 200:
+                print(f"✅ تم استدعاء المعالجة بنجاح للوثيقة: {document_id}")
+                return True
+            else:
+                print(f"⚠️ فشل استدعاء Edge Function: {response.status_code}")
+                print(f"📄 الرد: {response.text}")
+                self.update_document_status(document_id, "failed")
+                return False
+                
+        except Exception as e:
+            print(f"❌ خطأ في استدعاء المعالجة: {e}")
+            self.update_document_status(document_id, "failed")
+            return False
+    
+    def check_processing_status(self, document_id: str) -> str:
+        """
+        فحص حالة معالجة الوثيقة
+        
+        Args:
+            document_id: معرف الوثيقة
+        
+        Returns:
+            حالة المعالجة: 'uploaded', 'processing', 'completed', 'failed'
+        """
+        try:
+            result = self.supabase.table("documents").select("status").eq("id", document_id).execute()
+            
+            if result.data:
+                status = result.data[0]["status"]
+                print(f"📊 حالة الوثيقة {document_id}: {status}")
+                return status
+            else:
+                print(f"❌ لم يتم العثور على الوثيقة: {document_id}")
+                return "not_found"
+                
+        except Exception as e:
+            print(f"❌ خطأ في فحص حالة المعالجة: {e}")
+            return "error"
+    
+    def get_processed_document_info(self, document_id: str) -> Optional[Dict]:
+        """
+        جلب معلومات الوثيقة المعالجة مع الإحصائيات
+        
+        Args:
+            document_id: معرف الوثيقة
+        
+        Returns:
+            معلومات الوثيقة والإحصائيات أو None
+        """
+        try:
+            # جلب معلومات الوثيقة الأساسية
+            doc_result = self.supabase.table("documents").select("*").eq("id", document_id).execute()
+            
+            if not doc_result.data:
+                print(f"❌ لم يتم العثور على الوثيقة: {document_id}")
+                return None
+            
+            document_info = doc_result.data[0]
+            
+            # جلب محتوى الوثيقة
+            content_result = self.supabase.table("document_content").select("*").eq("document_id", document_id).execute()
+            
+            # جلب فهارس الوثيقة
+            index_result = self.supabase.table("document_index").select("*").eq("document_id", document_id).execute()
+            
+            # إعداد الإحصائيات
+            stats = {
+                "total_pages": len(content_result.data) if content_result.data else 0,
+                "total_indexes": len(index_result.data) if index_result.data else 0,
+                "file_size_mb": round(document_info.get("file_size", 0) / (1024 * 1024), 2),
+                "upload_date": document_info.get("upload_date"),
+                "status": document_info.get("status"),
+                "extracted_title": document_info.get("extracted_title"),
+                "document_type": document_info.get("document_type", "غير محدد"),
+                "content_quality_score": document_info.get("content_quality_score", 0.0)
+            }
+            
+            # دمج المعلومات
+            full_info = {
+                "document": document_info,
+                "content": content_result.data if content_result.data else [],
+                "indexes": index_result.data if index_result.data else [],
+                "statistics": stats
+            }
+            
+            print(f"📋 معلومات الوثيقة {document_id}:")
+            print(f"   📄 الاسم: {document_info.get('filename')}")
+            print(f"   📊 الحالة: {stats['status']}")
+            print(f"   📑 عدد الصفحات: {stats['total_pages']}")
+            print(f"   🔍 عدد الفهارس: {stats['total_indexes']}")
+            print(f"   💾 الحجم: {stats['file_size_mb']} MB")
+            
+            return full_info
+            
+        except Exception as e:
+            print(f"❌ خطأ في جلب معلومات الوثيقة: {e}")
+            return None
 
 # إنشاء مثيل عام للاستخدام
 try:

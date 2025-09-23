@@ -11,6 +11,7 @@ import logging
 from pathlib import Path
 from mistralai import Mistral
 from dotenv import load_dotenv
+from tqdm import tqdm
 
 # استيراد الوحدات المخصصة
 from supabase_client import db_manager
@@ -46,10 +47,11 @@ if not API_KEY:
 client = Mistral(api_key=API_KEY)
 
 class EnhancedPDFProcessor:
-    """معالج PDF محسن مع دعم Supabase"""
+    """معالج PDF محسن مع دعم Supabase ورفع الملفات"""
     
-    def __init__(self):
+    def __init__(self, enable_upload=True):
         """تهيئة المعالج"""
+        self.enable_upload = enable_upload
         self.ensure_directories()
         
         # التحقق من الاتصال بقاعدة البيانات
@@ -58,6 +60,8 @@ class EnhancedPDFProcessor:
             sys.exit(1)
         
         print("✅ تم تهيئة المعالج بنجاح")
+        if self.enable_upload:
+            print("📤 رفع الملفات إلى Supabase مفعل")
     
     def ensure_directories(self):
         """التأكد من وجود المجلدات المطلوبة"""
@@ -99,7 +103,7 @@ class EnhancedPDFProcessor:
             return 0
     
     def process_pdf_with_ocr(self, pdf_filename):
-        """معالجة PDF باستخدام OCR وحفظ النتائج في Supabase"""
+        """معالجة PDF باستخدام OCR وحفظ النتائج في Supabase مع رفع الملف"""
         full_path = os.path.join(DOC_DIR, pdf_filename)
         
         # التحقق من وجود الملف في قاعدة البيانات
@@ -108,18 +112,33 @@ class EnhancedPDFProcessor:
             print(f"⚠️ الملف {pdf_filename} تم معالجته مسبقاً")
             return existing_doc['id']
         
-        # إنشاء سجل جديد أو تحديث الموجود
-        file_size = self.get_file_size(full_path)
-        
-        if existing_doc:
+        # رفع الملف إلى Supabase Storage إذا كان مفعلاً
+        if self.enable_upload and not existing_doc:
+            try:
+                print(f"📤 رفع الملف إلى Supabase Storage: {pdf_filename}")
+                document_id = db_manager.upload_pdf_file(full_path, pdf_filename)
+                print(f"✅ تم رفع الملف بنجاح - معرف الوثيقة: {document_id}")
+            except Exception as e:
+                print(f"⚠️ فشل رفع الملف، سيتم المتابعة بالمعالجة المحلية: {e}")
+                # إنشاء سجل محلي إذا فشل الرفع
+                file_size = self.get_file_size(full_path)
+                document_id = db_manager.create_document(
+                    filename=pdf_filename,
+                    original_path=full_path,
+                    file_size=file_size,
+                    metadata={'processor': 'mistral-ocr-latest', 'upload_failed': True}
+                )
+        elif existing_doc:
             document_id = existing_doc['id']
             db_manager.update_document_status(document_id, 'processing')
         else:
+            # إنشاء سجل محلي إذا كان الرفع غير مفعل
+            file_size = self.get_file_size(full_path)
             document_id = db_manager.create_document(
                 filename=pdf_filename,
                 original_path=full_path,
                 file_size=file_size,
-                metadata={'processor': 'mistral-ocr-latest'}
+                metadata={'processor': 'mistral-ocr-latest', 'local_only': True}
             )
             db_manager.update_document_status(document_id, 'processing')
         
@@ -172,6 +191,18 @@ class EnhancedPDFProcessor:
             
             # تحديث حالة الوثيقة إلى مكتملة
             db_manager.update_document_status(document_id, 'completed')
+            
+            # استدعاء Edge Function للمعالجة الإضافية إذا كان الرفع مفعلاً
+            if self.enable_upload:
+                try:
+                    print(f"🔄 استدعاء Edge Function للمعالجة الإضافية...")
+                    success = db_manager.trigger_processing(document_id, full_path, pdf_filename)
+                    if success:
+                        print(f"✅ تم استدعاء Edge Function بنجاح")
+                    else:
+                        print(f"⚠️ فشل في استدعاء Edge Function، لكن المعالجة المحلية اكتملت")
+                except Exception as e:
+                    print(f"⚠️ خطأ في استدعاء Edge Function: {e}")
             
             print(f"✅ تم معالجة {pdf_filename} بنجاح")
             print(f"   📊 عدد الصفحات: {len(response.pages)}")
@@ -248,34 +279,42 @@ class EnhancedPDFProcessor:
         print("-" * 50)
         
         processed_count = 0
-        for idx, pdf_file in enumerate(to_process, 1):
-            print(f"\n[{idx}/{len(to_process)}] معالجة: {pdf_file}")
-            
-            attempts = 0
-            backoff = INITIAL_BACKOFF
-            success = False
-            
-            while attempts < MAX_RETRIES and not success:
-                attempts += 1
-                try:
-                    self.process_pdf_with_ocr(pdf_file)
-                    success = True
-                    processed_count += 1
-                    
-                    # انتظار قبل الملف التالي
-                    if idx < len(to_process):
-                        print("⏳ انتظار 3 ثوانٍ قبل الملف التالي...")
-                        time.sleep(3)
+        
+        # استخدام شريط التقدم
+        with tqdm(to_process, desc="معالجة الملفات", unit="ملف") as pbar:
+            for idx, pdf_file in enumerate(pbar, 1):
+                pbar.set_description(f"معالجة: {pdf_file[:30]}...")
+                
+                attempts = 0
+                backoff = INITIAL_BACKOFF
+                success = False
+                
+                while attempts < MAX_RETRIES and not success:
+                    attempts += 1
+                    try:
+                        document_id = self.process_pdf_with_ocr(pdf_file)
+                        success = True
+                        processed_count += 1
                         
-                except Exception as e:
-                    error_msg = str(e)
-                    logging.error(f"{pdf_file} المحاولة {attempts} فشلت: {error_msg}")
-                    print(f"❌ خطأ في معالجة {pdf_file} (المحاولة {attempts}): {error_msg}")
-                    
-                    if attempts < MAX_RETRIES:
-                        print(f"🔄 إعادة المحاولة خلال {backoff} ثانية...")
-                        time.sleep(backoff)
-                        backoff *= 2
+                        # تحديث شريط التقدم
+                        pbar.set_postfix({
+                            'نجح': processed_count,
+                            'معرف': document_id[:8] if document_id else 'N/A'
+                        })
+                        
+                        # انتظار قبل الملف التالي
+                        if idx < len(to_process):
+                            time.sleep(3)
+                            
+                    except Exception as e:
+                        error_msg = str(e)
+                        logging.error(f"{pdf_file} المحاولة {attempts} فشلت: {error_msg}")
+                        pbar.write(f"❌ خطأ في معالجة {pdf_file} (المحاولة {attempts}): {error_msg}")
+                        
+                        if attempts < MAX_RETRIES:
+                            pbar.write(f"🔄 إعادة المحاولة خلال {backoff} ثانية...")
+                            time.sleep(backoff)
+                            backoff *= 2
             
             if not success:
                 print(f"💥 فشل نهائي: {pdf_file} بعد {attempts} محاولات")
@@ -291,11 +330,55 @@ class EnhancedPDFProcessor:
 
 def main():
     """الدالة الرئيسية"""
+    import argparse
+    
+    parser = argparse.ArgumentParser(description='معالج PDF محسن مع دعم Supabase')
+    parser.add_argument('--no-upload', action='store_true', 
+                       help='تعطيل رفع الملفات إلى Supabase Storage')
+    parser.add_argument('--single-file', type=str, 
+                       help='معالجة ملف واحد فقط')
+    parser.add_argument('--status', action='store_true',
+                       help='عرض إحصائيات المعالجة فقط')
+    
+    args = parser.parse_args()
+    
     print("🚀 بدء معالج PDF المحسن مع Supabase")
     print("=" * 50)
     
-    processor = EnhancedPDFProcessor()
-    processor.process_all_pdfs()
+    # إنشاء المعالج
+    processor = EnhancedPDFProcessor(enable_upload=not args.no_upload)
+    
+    if args.status:
+        # عرض الإحصائيات فقط
+        stats = processor.get_processing_statistics()
+        print("\n📊 إحصائيات المعالجة:")
+        print(f"   📄 إجمالي الوثائق: {stats['total']}")
+        print(f"   ✅ مكتمل: {stats['completed']}")
+        print(f"   🔄 قيد المعالجة: {stats['processing']}")
+        print(f"   ❌ فشل: {stats['failed']}")
+        print(f"   📤 مرفوع: {stats['uploaded']}")
+        return
+    
+    if args.single_file:
+        # معالجة ملف واحد
+        try:
+            document_id = processor.process_pdf_with_ocr(args.single_file)
+            print(f"\n✅ تم معالجة الملف بنجاح")
+            print(f"🆔 معرف الوثيقة: {document_id}")
+            
+            # عرض معلومات الوثيقة
+            if processor.enable_upload:
+                info = db_manager.get_processed_document_info(document_id)
+                if info:
+                    print(f"\n📋 معلومات الوثيقة:")
+                    print(f"   📊 الحالة: {info['statistics']['status']}")
+                    print(f"   📑 عدد الصفحات: {info['statistics']['total_pages']}")
+                    print(f"   🔍 عدد الفهارس: {info['statistics']['total_indexes']}")
+        except Exception as e:
+            print(f"❌ فشل في معالجة الملف: {e}")
+    else:
+        # معالجة جميع الملفات
+        processor.process_all_pdfs()
     
     print("\n🎉 انتهت المعالجة!")
 

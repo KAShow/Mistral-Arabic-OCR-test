@@ -6,6 +6,10 @@ python-dotenv
 supabase
 postgrest
 
+# متطلبات جديدة لرفع الملفات والتقدم
+tqdm>=4.64.0
+requests>=2.28.0
+
 # معالجة النصوص العربية (اختيارية)
 arabic-reshaper
 python-bidi
