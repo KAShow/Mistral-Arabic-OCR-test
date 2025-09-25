@@ -86,12 +86,42 @@ class EnhancedPDFProcessor:
         return pdf_files
     
     def encode_pdf(self, pdf_path):
-        """ترميز ملف PDF إلى base64"""
+        """ترميز ملف PDF إلى base64 مع التحقق من السلامة"""
         try:
             with open(pdf_path, "rb") as pdf_file:
-                return base64.b64encode(pdf_file.read()).decode('utf-8')
+                pdf_content = pdf_file.read()
+                
+            # التحقق من صحة الملف
+            if len(pdf_content) == 0:
+                raise ValueError("الملف فارغ")
+                
+            if not pdf_content.startswith(b'%PDF'):
+                raise ValueError("الملف ليس PDF صالح")
+            
+            # ترميز base64
+            encoded = base64.b64encode(pdf_content).decode('utf-8')
+            
+            # التحقق من صحة base64
+            if not encoded or len(encoded) < 100:
+                raise ValueError("فشل في ترميز base64 بشكل صحيح")
+            
+            # اختبار فك الترميز للتأكد
+            try:
+                decoded_test = base64.b64decode(encoded)
+                if len(decoded_test) != len(pdf_content):
+                    raise ValueError("base64 لا يطابق الملف الأصلي")
+            except Exception:
+                raise ValueError("base64 تالف - فشل في فك الترميز")
+            
+            print(f"📏 حجم الملف: {len(pdf_content):,} بايت")
+            print(f"📝 طول base64: {len(encoded):,} حرف")
+            print(f"✅ تم ترميز PDF بنجاح")
+            
+            return encoded
+            
         except Exception as e:
             logging.error(f"فشل في ترميز {pdf_path}: {e}")
+            print(f"❌ خطأ في ترميز الملف: {e}")
             return None
     
     def get_file_size(self, file_path):
@@ -150,15 +180,34 @@ class EnhancedPDFProcessor:
             
             print(f"🔄 معالجة OCR للملف: {pdf_filename}")
             
-            # استدعاء Mistral OCR
-            response = client.ocr.process(
-                model="mistral-ocr-latest",
-                document={
-                    "type": "document_url",
-                    "document_url": f"data:application/pdf;base64,{b64}"
-                },
-                include_image_base64=False
-            )
+            # التحقق من حجم base64 قبل الإرسال
+            max_size_mb = 50  # حد أقصى 50 ميجا
+            max_size_chars = max_size_mb * 1024 * 1024 * 4 // 3  # تحويل تقريبي لـ base64
+            
+            if len(b64) > max_size_chars:
+                raise ValueError(f"الملف كبير جداً ({len(b64):,} حرف). الحد الأقصى: {max_size_chars:,}")
+            
+            print(f"🔄 إرسال إلى Mistral OCR - الحجم: {len(b64):,} حرف")
+            
+            # استدعاء Mistral OCR مع معالجة أفضل للأخطاء
+            try:
+                response = client.ocr.process(
+                    model="mistral-ocr-latest",
+                    document={
+                        "type": "document_url",
+                        "document_url": f"data:application/pdf;base64,{b64}"
+                    },
+                    include_image_base64=False
+                )
+            except Exception as ocr_error:
+                # معالجة خاصة لأخطاء OCR
+                error_msg = str(ocr_error)
+                if "422" in error_msg and "base64" in error_msg:
+                    raise RuntimeError(f"خطأ في تنسيق base64: تأكد من سلامة الملف وحجمه")
+                elif "422" in error_msg:
+                    raise RuntimeError(f"خطأ في طلب Mistral API: {error_msg}")
+                else:
+                    raise RuntimeError(f"خطأ في معالجة OCR: {error_msg}")
             
             # حفظ محتوى كل صفحة
             full_text = ""
@@ -212,10 +261,33 @@ class EnhancedPDFProcessor:
             return document_id
             
         except Exception as e:
-            # تحديث حالة الوثيقة إلى فشل
-            db_manager.update_document_status(document_id, 'failed')
+            # تحديث حالة الوثيقة إلى فشل مع تفاصيل الخطأ
+            error_details = {
+                'error_message': str(e),
+                'error_type': type(e).__name__,
+                'processing_stage': 'ocr_processing'
+            }
+            
+            # حفظ تفاصيل الخطأ في metadata
+            try:
+                result = db_manager.supabase.table("documents").update({
+                    "status": "failed",
+                    "metadata": error_details
+                }).eq("id", document_id).execute()
+            except:
+                # إذا فشل في تحديث metadata، استخدم الطريقة البسيطة
+                db_manager.update_document_status(document_id, 'failed')
+            
             logging.error(f"فشل في معالجة {pdf_filename}: {e}")
-            raise
+            print(f"💥 فشل في معالجة {pdf_filename}: {str(e)}")
+            
+            # إعادة رفع الخطأ مع رسالة واضحة
+            if "base64" in str(e).lower():
+                raise RuntimeError(f"مشكلة في ترميز الملف: {str(e)}")
+            elif "422" in str(e):
+                raise RuntimeError(f"رفض API للطلب: {str(e)}")
+            else:
+                raise
     
     def save_markdown_file(self, pdf_filename, pages):
         """حفظ ملف Markdown (نسخة احتياطية)"""
