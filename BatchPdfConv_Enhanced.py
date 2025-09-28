@@ -9,6 +9,7 @@ import base64
 import time
 import logging
 from pathlib import Path
+from datetime import datetime
 from mistralai import Mistral
 from dotenv import load_dotenv
 from tqdm import tqdm
@@ -23,8 +24,45 @@ load_dotenv()
 DOC_DIR = "docs_import"
 EXPORT_DIR = "docs_exports"
 LOG_FILE = "supabase_conversion.log"
+DETAILED_LOG = "detailed_processing_log.txt"
 MAX_RETRIES = 5
 INITIAL_BACKOFF = 1  # in seconds
+
+class ArabicFileLogger:
+    """مسجل ملفات يدعم العربية"""
+    
+    def __init__(self, log_file):
+        self.log_file = log_file
+        self.start_time = datetime.now()
+        
+        # إنشاء ملف السجل مع دعم UTF-8
+        with open(self.log_file, 'w', encoding='utf-8') as f:
+            f.write("=" * 80 + "\n")
+            f.write("📋 سجل معالجة PDF المفصل\n")
+            f.write(f"🕐 بدء التسجيل: {self.start_time.strftime('%Y-%m-%d %H:%M:%S')}\n")
+            f.write("=" * 80 + "\n\n")
+    
+    def log(self, message, level="INFO"):
+        """تسجيل رسالة مع الوقت"""
+        timestamp = datetime.now().strftime('%H:%M:%S')
+        log_line = f"[{timestamp}] {level}: {message}\n"
+        
+        with open(self.log_file, 'a', encoding='utf-8') as f:
+            f.write(log_line)
+        
+        # طباعة على الشاشة أيضاً
+        print(message)
+    
+    def log_separator(self, title=""):
+        """تسجيل فاصل"""
+        separator = "-" * 50
+        if title:
+            separator += f" {title} " + "-" * 10
+        
+        self.log(separator)
+
+# إنشاء مسجل الملفات
+file_logger = ArabicFileLogger(DETAILED_LOG)
 
 # Initialize logging
 logging.basicConfig(
@@ -88,8 +126,11 @@ class EnhancedPDFProcessor:
     def encode_pdf(self, pdf_path):
         """ترميز ملف PDF إلى base64 مع التحقق من السلامة"""
         try:
+            file_logger.log(f"🔄 قراءة الملف من: {pdf_path}")
             with open(pdf_path, "rb") as pdf_file:
                 pdf_content = pdf_file.read()
+            
+            file_logger.log(f"✅ تم قراءة {len(pdf_content):,} بايت")
                 
             # التحقق من صحة الملف
             if len(pdf_content) == 0:
@@ -98,30 +139,38 @@ class EnhancedPDFProcessor:
             if not pdf_content.startswith(b'%PDF'):
                 raise ValueError("الملف ليس PDF صالح")
             
+            file_logger.log("🔄 بدء ترميز base64...")
+            
             # ترميز base64
             encoded = base64.b64encode(pdf_content).decode('utf-8')
+            
+            file_logger.log(f"✅ تم الترميز - الطول: {len(encoded):,} حرف")
             
             # التحقق من صحة base64
             if not encoded or len(encoded) < 100:
                 raise ValueError("فشل في ترميز base64 بشكل صحيح")
             
             # اختبار فك الترميز للتأكد
+            file_logger.log("🔍 اختبار فك ترميز base64...")
             try:
                 decoded_test = base64.b64decode(encoded)
                 if len(decoded_test) != len(pdf_content):
                     raise ValueError("base64 لا يطابق الملف الأصلي")
-            except Exception:
+                file_logger.log("✅ اختبار فك الترميز نجح")
+            except Exception as decode_error:
+                file_logger.log(f"❌ فشل اختبار فك الترميز: {decode_error}", "ERROR")
                 raise ValueError("base64 تالف - فشل في فك الترميز")
             
-            print(f"📏 حجم الملف: {len(pdf_content):,} بايت")
-            print(f"📝 طول base64: {len(encoded):,} حرف")
-            print(f"✅ تم ترميز PDF بنجاح")
+            file_logger.log(f"📏 ملخص الترميز:")
+            file_logger.log(f"   📄 حجم الملف الأصلي: {len(pdf_content):,} بايت")
+            file_logger.log(f"   📝 طول base64: {len(encoded):,} حرف")
+            file_logger.log(f"   📊 نسبة الضغط: {len(encoded)/len(pdf_content):.2f}x")
             
             return encoded
             
         except Exception as e:
+            file_logger.log(f"❌ فشل في ترميز {pdf_path}: {e}", "ERROR")
             logging.error(f"فشل في ترميز {pdf_path}: {e}")
-            print(f"❌ خطأ في ترميز الملف: {e}")
             return None
     
     def get_file_size(self, file_path):
@@ -136,11 +185,59 @@ class EnhancedPDFProcessor:
         """معالجة PDF باستخدام OCR وحفظ النتائج في Supabase مع رفع الملف"""
         full_path = os.path.join(DOC_DIR, pdf_filename)
         
+        # تسجيل بداية المعالجة
+        file_logger.log_separator(f"معالجة {pdf_filename}")
+        file_logger.log(f"🚀 بدء معالجة الملف: {pdf_filename}")
+        file_logger.log(f"📂 المسار الكامل: {full_path}")
+        
+        # فحص شامل للملف
+        try:
+            file_logger.log("🔍 فحص وجود الملف...")
+            if not os.path.exists(full_path):
+                raise FileNotFoundError(f"الملف غير موجود: {full_path}")
+            
+            file_logger.log("✅ الملف موجود")
+            
+            # فحص حجم الملف
+            file_size = os.path.getsize(full_path)
+            file_logger.log(f"📏 حجم الملف: {file_size:,} بايت ({file_size/1024/1024:.2f} MB)")
+            
+            if file_size == 0:
+                raise ValueError("الملف فارغ")
+            
+            if file_size > 50 * 1024 * 1024:  # 50MB
+                raise ValueError(f"الملف كبير جداً: {file_size/1024/1024:.1f} MB (الحد الأقصى: 50 MB)")
+            
+            # فحص نوع الملف
+            file_logger.log("🔍 فحص صيغة PDF...")
+            with open(full_path, 'rb') as f:
+                first_bytes = f.read(10)
+                if not first_bytes.startswith(b'%PDF'):
+                    raise ValueError("الملف ليس PDF صالح")
+            
+            file_logger.log("✅ الملف PDF صالح")
+            
+            # فحص قابلية القراءة
+            file_logger.log("🔍 اختبار قراءة الملف كاملاً...")
+            with open(full_path, 'rb') as f:
+                content = f.read()
+                if len(content) != file_size:
+                    raise ValueError("فشل في قراءة الملف كاملاً")
+            
+            file_logger.log("✅ تم قراءة الملف بنجاح")
+            
+        except Exception as e:
+            file_logger.log(f"❌ فشل في فحص الملف: {str(e)}", "ERROR")
+            raise
+        
         # التحقق من وجود الملف في قاعدة البيانات
+        file_logger.log("🔍 فحص قاعدة البيانات...")
         existing_doc = db_manager.get_document_by_filename(pdf_filename)
         if existing_doc and existing_doc['status'] == 'completed':
-            print(f"⚠️ الملف {pdf_filename} تم معالجته مسبقاً")
+            file_logger.log(f"⚠️ الملف {pdf_filename} تم معالجته مسبقاً")
             return existing_doc['id']
+        
+        file_logger.log("✅ الملف جاهز للمعالجة")
         
         # رفع الملف إلى Supabase Storage إذا كان مفعلاً
         if self.enable_upload and not existing_doc:
@@ -174,23 +271,43 @@ class EnhancedPDFProcessor:
         
         try:
             # ترميز PDF
+            file_logger.log("🔄 بدء ترميز PDF إلى base64...")
             b64 = self.encode_pdf(full_path)
             if not b64:
                 raise RuntimeError("فشل في ترميز PDF")
             
-            print(f"🔄 معالجة OCR للملف: {pdf_filename}")
+            file_logger.log(f"✅ تم ترميز PDF بنجاح - الطول: {len(b64):,} حرف")
+            file_logger.log(f"🔄 معالجة OCR للملف: {pdf_filename}")
             
             # التحقق من حجم base64 قبل الإرسال
             max_size_mb = 50  # حد أقصى 50 ميجا
             max_size_chars = max_size_mb * 1024 * 1024 * 4 // 3  # تحويل تقريبي لـ base64
             
+            file_logger.log(f"🔍 فحص حجم base64: {len(b64):,} حرف (الحد الأقصى: {max_size_chars:,})")
+            
             if len(b64) > max_size_chars:
                 raise ValueError(f"الملف كبير جداً ({len(b64):,} حرف). الحد الأقصى: {max_size_chars:,}")
             
-            print(f"🔄 إرسال إلى Mistral OCR - الحجم: {len(b64):,} حرف")
+            file_logger.log("✅ حجم base64 مقبول")
+            
+            # تسجيل عينة من base64 للتشخيص
+            file_logger.log(f"🔍 بداية base64 (50 حرف): {b64[:50]}")
+            file_logger.log(f"🔍 نهاية base64 (50 حرف): {b64[-50:]}")
+            
+            # فحص سلامة base64
+            try:
+                file_logger.log("🔍 اختبار فك ترميز base64...")
+                test_decode = base64.b64decode(b64)
+                file_logger.log(f"✅ base64 صحيح - الحجم المفكوك: {len(test_decode):,} بايت")
+            except Exception as decode_error:
+                file_logger.log(f"❌ base64 تالف: {decode_error}", "ERROR")
+                raise ValueError(f"base64 تالف: {decode_error}")
+            
+            file_logger.log(f"🔄 إرسال إلى Mistral OCR - الحجم: {len(b64):,} حرف")
             
             # استدعاء Mistral OCR مع معالجة أفضل للأخطاء
             try:
+                file_logger.log("📡 بدء استدعاء Mistral OCR API...")
                 response = client.ocr.process(
                     model="mistral-ocr-latest",
                     document={
@@ -199,21 +316,32 @@ class EnhancedPDFProcessor:
                     },
                     include_image_base64=False
                 )
+                file_logger.log("✅ تم استلام الرد من Mistral OCR بنجاح")
+                
             except Exception as ocr_error:
-                # معالجة خاصة لأخطاء OCR
+                # تسجيل تفاصيل الخطأ
                 error_msg = str(ocr_error)
+                file_logger.log(f"❌ خطأ في Mistral OCR API: {error_msg}", "ERROR")
+                
+                # معالجة خاصة لأخطاء OCR
                 if "422" in error_msg and "base64" in error_msg:
+                    file_logger.log("🔍 الخطأ: مشكلة في تنسيق base64", "ERROR")
                     raise RuntimeError(f"خطأ في تنسيق base64: تأكد من سلامة الملف وحجمه")
                 elif "422" in error_msg:
+                    file_logger.log("🔍 الخطأ: رفض الطلب من API", "ERROR")
                     raise RuntimeError(f"خطأ في طلب Mistral API: {error_msg}")
                 else:
+                    file_logger.log("🔍 الخطأ: خطأ عام في معالجة OCR", "ERROR")
                     raise RuntimeError(f"خطأ في معالجة OCR: {error_msg}")
             
             # حفظ محتوى كل صفحة
+            file_logger.log(f"📄 معالجة {len(response.pages)} صفحة...")
             full_text = ""
             for page in response.pages:
                 page_content = page.markdown
                 full_text += page_content + "\n\n"
+                
+                file_logger.log(f"📄 حفظ الصفحة {page.index + 1} - طول المحتوى: {len(page_content)} حرف")
                 
                 # حفظ محتوى الصفحة في قاعدة البيانات
                 db_manager.save_document_content(
@@ -222,14 +350,22 @@ class EnhancedPDFProcessor:
                     raw_markdown=page_content
                 )
             
+            file_logger.log(f"✅ تم حفظ جميع الصفحات - إجمالي النص: {len(full_text)} حرف")
+            
             # إنشاء ملف Markdown (للنسخ الاحتياطي)
             self.save_markdown_file(pdf_filename, response.pages)
             
             # فهرسة النص
-            print(f"📚 فهرسة النص للملف: {pdf_filename}")
+            file_logger.log(f"📚 بدء فهرسة النص للملف: {pdf_filename}")
             index_data = text_indexer.create_full_index(full_text, document_id)
             
+            file_logger.log(f"🔍 إحصائيات الفهرسة:")
+            file_logger.log(f"   📊 إجمالي الكلمات: {index_data['statistics']['total_words']}")
+            file_logger.log(f"   🔤 كلمات فريدة: {index_data['statistics']['unique_words']}")
+            file_logger.log(f"   📑 عدد الأجزاء: {len(index_data['chunks'])}")
+            
             # حفظ الفهارس في قاعدة البيانات
+            file_logger.log("💾 حفظ الفهارس في قاعدة البيانات...")
             for chunk in index_data['chunks']:
                 db_manager.create_document_index(
                     document_id=document_id,
@@ -238,8 +374,12 @@ class EnhancedPDFProcessor:
                     chunk_position=chunk['position']
                 )
             
+            file_logger.log("✅ تم حفظ جميع الفهارس")
+            
             # تحديث حالة الوثيقة إلى مكتملة
+            file_logger.log("🔄 تحديث حالة الوثيقة إلى مكتملة...")
             db_manager.update_document_status(document_id, 'completed')
+            file_logger.log("✅ تم تحديث حالة الوثيقة بنجاح")
             
             # استدعاء Edge Function للمعالجة الإضافية إذا كان الرفع مفعلاً
             if self.enable_upload:
@@ -261,12 +401,18 @@ class EnhancedPDFProcessor:
             return document_id
             
         except Exception as e:
+            # تسجيل تفاصيل الفشل
+            file_logger.log(f"💥 فشل في معالجة {pdf_filename}: {str(e)}", "ERROR")
+            
             # تحديث حالة الوثيقة إلى فشل مع تفاصيل الخطأ
             error_details = {
                 'error_message': str(e),
                 'error_type': type(e).__name__,
-                'processing_stage': 'ocr_processing'
+                'processing_stage': 'ocr_processing',
+                'timestamp': datetime.now().isoformat()
             }
+            
+            file_logger.log("🔄 حفظ تفاصيل الخطأ في قاعدة البيانات...")
             
             # حفظ تفاصيل الخطأ في metadata
             try:
@@ -274,19 +420,23 @@ class EnhancedPDFProcessor:
                     "status": "failed",
                     "metadata": error_details
                 }).eq("id", document_id).execute()
-            except:
+                file_logger.log("✅ تم حفظ تفاصيل الخطأ في قاعدة البيانات")
+            except Exception as db_error:
+                file_logger.log(f"❌ فشل في حفظ تفاصيل الخطأ: {db_error}", "ERROR")
                 # إذا فشل في تحديث metadata، استخدم الطريقة البسيطة
                 db_manager.update_document_status(document_id, 'failed')
             
             logging.error(f"فشل في معالجة {pdf_filename}: {e}")
-            print(f"💥 فشل في معالجة {pdf_filename}: {str(e)}")
             
             # إعادة رفع الخطأ مع رسالة واضحة
             if "base64" in str(e).lower():
+                file_logger.log("🔍 تشخيص: مشكلة في ترميز base64", "ERROR")
                 raise RuntimeError(f"مشكلة في ترميز الملف: {str(e)}")
             elif "422" in str(e):
+                file_logger.log("🔍 تشخيص: رفض API للطلب (422)", "ERROR")
                 raise RuntimeError(f"رفض API للطلب: {str(e)}")
             else:
+                file_logger.log("🔍 تشخيص: خطأ عام في المعالجة", "ERROR")
                 raise
     
     def save_markdown_file(self, pdf_filename, pages):
