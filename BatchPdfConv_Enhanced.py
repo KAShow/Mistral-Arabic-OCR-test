@@ -1,6 +1,6 @@
 """
-معالج PDF محسن مع دعم Supabase والفهرسة الذكية
-يدمج OCR مع قاعدة البيانات والفهرسة التلقائية
+معالج PDF محسن مع دعم التخزين المحلي والفهرسة الذكية
+يدمج OCR مع التخزين المحلي والفهرسة التلقائية
 """
 
 import os
@@ -15,7 +15,7 @@ from dotenv import load_dotenv
 from tqdm import tqdm
 
 # استيراد الوحدات المخصصة
-from supabase_client import db_manager
+from json_storage import json_storage
 from text_indexer import text_indexer
 
 load_dotenv()
@@ -85,21 +85,19 @@ if not API_KEY:
 client = Mistral(api_key=API_KEY)
 
 class EnhancedPDFProcessor:
-    """معالج PDF محسن مع دعم Supabase ورفع الملفات"""
+    """معالج PDF محسن مع دعم التخزين المحلي"""
     
-    def __init__(self, enable_upload=True):
+    def __init__(self):
         """تهيئة المعالج"""
-        self.enable_upload = enable_upload
         self.ensure_directories()
         
-        # التحقق من الاتصال بقاعدة البيانات
-        if not db_manager:
-            print("❌ خطأ: فشل في الاتصال مع Supabase")
+        # التحقق من نظام التخزين المحلي
+        if not json_storage:
+            print("❌ خطأ: فشل في تهيئة نظام التخزين المحلي")
             sys.exit(1)
         
         print("✅ تم تهيئة المعالج بنجاح")
-        if self.enable_upload:
-            print("📤 رفع الملفات إلى Supabase مفعل")
+        print("💾 التخزين المحلي بصيغة JSON مفعل")
     
     def ensure_directories(self):
         """التأكد من وجود المجلدات المطلوبة"""
@@ -182,7 +180,7 @@ class EnhancedPDFProcessor:
             return 0
     
     def process_pdf_with_ocr(self, pdf_filename):
-        """معالجة PDF باستخدام OCR وحفظ النتائج في Supabase مع رفع الملف"""
+        """معالجة PDF باستخدام OCR وحفظ النتائج محلياً في JSON"""
         full_path = os.path.join(DOC_DIR, pdf_filename)
         
         # تسجيل بداية المعالجة
@@ -205,8 +203,8 @@ class EnhancedPDFProcessor:
             if file_size == 0:
                 raise ValueError("الملف فارغ")
             
-            if file_size > 50 * 1024 * 1024:  # 50MB
-                raise ValueError(f"الملف كبير جداً: {file_size/1024/1024:.1f} MB (الحد الأقصى: 50 MB)")
+            if file_size > 500 * 1024 * 1024:  # 50MB
+                raise ValueError(f"الملف كبير جداً: {file_size/1024/1024:.1f} MB (الحد الأقصى: 500 MB)")
             
             # فحص نوع الملف
             file_logger.log("🔍 فحص صيغة PDF...")
@@ -230,44 +228,28 @@ class EnhancedPDFProcessor:
             file_logger.log(f"❌ فشل في فحص الملف: {str(e)}", "ERROR")
             raise
         
-        # التحقق من وجود الملف في قاعدة البيانات
-        file_logger.log("🔍 فحص قاعدة البيانات...")
-        existing_doc = db_manager.get_document_by_filename(pdf_filename)
+        # التحقق من وجود الملف في النظام المحلي
+        file_logger.log("🔍 فحص التخزين المحلي...")
+        existing_doc = json_storage.get_document_by_filename(pdf_filename)
         if existing_doc and existing_doc['status'] == 'completed':
             file_logger.log(f"⚠️ الملف {pdf_filename} تم معالجته مسبقاً")
             return existing_doc['id']
         
         file_logger.log("✅ الملف جاهز للمعالجة")
         
-        # رفع الملف إلى Supabase Storage إذا كان مفعلاً
-        if self.enable_upload and not existing_doc:
-            try:
-                print(f"📤 رفع الملف إلى Supabase Storage: {pdf_filename}")
-                document_id = db_manager.upload_pdf_file(full_path, pdf_filename)
-                print(f"✅ تم رفع الملف بنجاح - معرف الوثيقة: {document_id}")
-            except Exception as e:
-                print(f"⚠️ فشل رفع الملف، سيتم المتابعة بالمعالجة المحلية: {e}")
-                # إنشاء سجل محلي إذا فشل الرفع
-                file_size = self.get_file_size(full_path)
-                document_id = db_manager.create_document(
-                    filename=pdf_filename,
-                    original_path=full_path,
-                    file_size=file_size,
-                    metadata={'processor': 'mistral-ocr-latest', 'upload_failed': True}
-                )
-        elif existing_doc:
+        # إنشاء سجل الوثيقة في النظام المحلي
+        if existing_doc:
             document_id = existing_doc['id']
-            db_manager.update_document_status(document_id, 'processing')
+            json_storage.update_document_status(document_id, 'processing')
         else:
-            # إنشاء سجل محلي إذا كان الرفع غير مفعل
-            file_size = self.get_file_size(full_path)
-            document_id = db_manager.create_document(
+            # إنشاء سجل محلي جديد
+            document_id = json_storage.create_document(
                 filename=pdf_filename,
                 original_path=full_path,
                 file_size=file_size,
-                metadata={'processor': 'mistral-ocr-latest', 'local_only': True}
+                metadata={'processor': 'mistral-ocr-latest', 'local_storage': True}
             )
-            db_manager.update_document_status(document_id, 'processing')
+            json_storage.update_document_status(document_id, 'processing')
         
         try:
             # ترميز PDF
@@ -337,23 +319,29 @@ class EnhancedPDFProcessor:
             # حفظ محتوى كل صفحة
             file_logger.log(f"📄 معالجة {len(response.pages)} صفحة...")
             full_text = ""
+            pages_data = []
+            
             for page in response.pages:
                 page_content = page.markdown
                 full_text += page_content + "\n\n"
                 
                 file_logger.log(f"📄 حفظ الصفحة {page.index + 1} - طول المحتوى: {len(page_content)} حرف")
                 
-                # حفظ محتوى الصفحة في قاعدة البيانات
-                db_manager.save_document_content(
+                # حفظ محتوى الصفحة محلياً
+                json_storage.save_document_content(
                     document_id=document_id,
                     page_number=page.index + 1,
                     raw_markdown=page_content
                 )
+                
+                # إضافة بيانات الصفحة للوثيقة الشاملة
+                pages_data.append({
+                    "page_number": page.index + 1,
+                    "content": page_content,
+                    "length": len(page_content)
+                })
             
             file_logger.log(f"✅ تم حفظ جميع الصفحات - إجمالي النص: {len(full_text)} حرف")
-            
-            # إنشاء ملف Markdown (للنسخ الاحتياطي)
-            self.save_markdown_file(pdf_filename, response.pages)
             
             # فهرسة النص
             file_logger.log(f"📚 بدء فهرسة النص للملف: {pdf_filename}")
@@ -364,10 +352,10 @@ class EnhancedPDFProcessor:
             file_logger.log(f"   🔤 كلمات فريدة: {index_data['statistics']['unique_words']}")
             file_logger.log(f"   📑 عدد الأجزاء: {len(index_data['chunks'])}")
             
-            # حفظ الفهارس في قاعدة البيانات
-            file_logger.log("💾 حفظ الفهارس في قاعدة البيانات...")
+            # حفظ الفهارس محلياً
+            file_logger.log("💾 حفظ الفهارس محلياً...")
             for chunk in index_data['chunks']:
-                db_manager.create_document_index(
+                json_storage.create_document_index(
                     document_id=document_id,
                     content_chunk=chunk['content'],
                     keywords=chunk['keywords'],
@@ -376,27 +364,35 @@ class EnhancedPDFProcessor:
             
             file_logger.log("✅ تم حفظ جميع الفهارس")
             
+            # إنشاء الوثيقة الشاملة
+            complete_document = {
+                "pages": pages_data,
+                "full_text": full_text,
+                "index_data": index_data,
+                "statistics": {
+                    "total_pages": len(response.pages),
+                    "total_chars": len(full_text),
+                    "total_words": index_data['statistics']['total_words'],
+                    "unique_words": index_data['statistics']['unique_words'],
+                    "chunks_count": len(index_data['chunks']),
+                    "processed_at": datetime.now().isoformat()
+                }
+            }
+            
+            # حفظ الوثيقة الشاملة
+            file_logger.log("💾 حفظ الوثيقة الشاملة في JSON...")
+            json_storage.save_complete_document(document_id, pdf_filename, complete_document)
+            
             # تحديث حالة الوثيقة إلى مكتملة
             file_logger.log("🔄 تحديث حالة الوثيقة إلى مكتملة...")
-            db_manager.update_document_status(document_id, 'completed')
+            json_storage.update_document_status(document_id, 'completed')
             file_logger.log("✅ تم تحديث حالة الوثيقة بنجاح")
             
-            # استدعاء Edge Function للمعالجة الإضافية إذا كان الرفع مفعلاً
-            if self.enable_upload:
-                try:
-                    print(f"🔄 استدعاء Edge Function للمعالجة الإضافية...")
-                    success = db_manager.trigger_processing(document_id, full_path, pdf_filename)
-                    if success:
-                        print(f"✅ تم استدعاء Edge Function بنجاح")
-                    else:
-                        print(f"⚠️ فشل في استدعاء Edge Function، لكن المعالجة المحلية اكتملت")
-                except Exception as e:
-                    print(f"⚠️ خطأ في استدعاء Edge Function: {e}")
-            
-            print(f"✅ تم معالجة {pdf_filename} بنجاح")
+            print(f"✅ تم معالجة {pdf_filename} بنجاح وحفظه في JSON")
             print(f"   📊 عدد الصفحات: {len(response.pages)}")
             print(f"   🔤 عدد الكلمات: {index_data['statistics']['total_words']}")
             print(f"   📑 عدد الأجزاء المفهرسة: {len(index_data['chunks'])}")
+            print(f"   💾 البيانات محفوظة محلياً في: json_data/")
             
             return document_id
             
@@ -412,19 +408,21 @@ class EnhancedPDFProcessor:
                 'timestamp': datetime.now().isoformat()
             }
             
-            file_logger.log("🔄 حفظ تفاصيل الخطأ في قاعدة البيانات...")
+            file_logger.log("🔄 حفظ تفاصيل الخطأ محلياً...")
             
-            # حفظ تفاصيل الخطأ في metadata
+            # تحديث حالة الوثيقة مع تفاصيل الخطأ
             try:
-                result = db_manager.supabase.table("documents").update({
-                    "status": "failed",
-                    "metadata": error_details
-                }).eq("id", document_id).execute()
-                file_logger.log("✅ تم حفظ تفاصيل الخطأ في قاعدة البيانات")
-            except Exception as db_error:
-                file_logger.log(f"❌ فشل في حفظ تفاصيل الخطأ: {db_error}", "ERROR")
-                # إذا فشل في تحديث metadata، استخدم الطريقة البسيطة
-                db_manager.update_document_status(document_id, 'failed')
+                json_storage.update_document_status(document_id, 'failed')
+                
+                # حفظ تفاصيل الخطأ في ملف منفصل
+                error_file = json_storage.base_dir / f"{document_id}_error.json"
+                with open(error_file, 'w', encoding='utf-8') as f:
+                    import json
+                    json.dump(error_details, f, ensure_ascii=False, indent=2)
+                
+                file_logger.log("✅ تم حفظ تفاصيل الخطأ محلياً")
+            except Exception as storage_error:
+                file_logger.log(f"❌ فشل في حفظ تفاصيل الخطأ: {storage_error}", "ERROR")
             
             logging.error(f"فشل في معالجة {pdf_filename}: {e}")
             
@@ -439,34 +437,11 @@ class EnhancedPDFProcessor:
                 file_logger.log("🔍 تشخيص: خطأ عام في المعالجة", "ERROR")
                 raise
     
-    def save_markdown_file(self, pdf_filename, pages):
-        """حفظ ملف Markdown (نسخة احتياطية)"""
-        output_name = pdf_filename.rsplit('.', 1)[0] + '.md'
-        output_path = os.path.join(EXPORT_DIR, output_name)
-        
-        # التأكد من وجود مجلد الإخراج
-        output_dir = os.path.dirname(output_path)
-        if output_dir and not os.path.exists(output_dir):
-            os.makedirs(output_dir)
-        
-        with open(output_path, 'w', encoding='utf-8') as md_file:
-            for page in pages:
-                md_file.write(f"## صفحة {page.index + 1}\n\n")
-                md_file.write(page.markdown + "\n\n")
+    # تم إزالة دالة save_markdown_file - لا نحتاجها عند التخزين في JSON
     
     def get_processing_statistics(self):
         """الحصول على إحصائيات المعالجة"""
-        all_docs = db_manager.get_all_documents()
-        
-        stats = {
-            'total': len(all_docs),
-            'completed': len([d for d in all_docs if d['status'] == 'completed']),
-            'processing': len([d for d in all_docs if d['status'] == 'processing']),
-            'failed': len([d for d in all_docs if d['status'] == 'failed']),
-            'uploaded': len([d for d in all_docs if d['status'] == 'uploaded'])
-        }
-        
-        return stats
+        return json_storage.get_processing_statistics()
     
     def process_all_pdfs(self):
         """معالجة جميع ملفات PDF"""
@@ -488,7 +463,7 @@ class EnhancedPDFProcessor:
         
         # تصفية الملفات المكتملة
         completed_files = set()
-        for doc in db_manager.get_all_documents('completed'):
+        for doc in json_storage.get_all_documents('completed'):
             completed_files.add(doc['filename'])
         
         to_process = [f for f in pdf_files if f not in completed_files]
@@ -547,16 +522,14 @@ class EnhancedPDFProcessor:
         print("📊 تقرير المعالجة النهائي:")
         print(f"   ✅ تم معالجة بنجاح: {processed_count} من {len(to_process)}")
         print(f"   📈 إجمالي الملفات المكتملة: {final_stats['completed']}")
-        print(f"   💾 جميع البيانات محفوظة في Supabase")
+        print(f"   💾 جميع البيانات محفوظة محلياً في JSON")
         print("=" * 50)
 
 def main():
     """الدالة الرئيسية"""
     import argparse
     
-    parser = argparse.ArgumentParser(description='معالج PDF محسن مع دعم Supabase')
-    parser.add_argument('--no-upload', action='store_true', 
-                       help='تعطيل رفع الملفات إلى Supabase Storage')
+    parser = argparse.ArgumentParser(description='معالج PDF محسن مع التخزين المحلي')
     parser.add_argument('--single-file', type=str, 
                        help='معالجة ملف واحد فقط')
     parser.add_argument('--status', action='store_true',
@@ -564,11 +537,11 @@ def main():
     
     args = parser.parse_args()
     
-    print("🚀 بدء معالج PDF المحسن مع Supabase")
+    print("🚀 بدء معالج PDF المحسن مع التخزين المحلي")
     print("=" * 50)
     
     # إنشاء المعالج
-    processor = EnhancedPDFProcessor(enable_upload=not args.no_upload)
+    processor = EnhancedPDFProcessor()
     
     if args.status:
         # عرض الإحصائيات فقط
@@ -589,13 +562,13 @@ def main():
             print(f"🆔 معرف الوثيقة: {document_id}")
             
             # عرض معلومات الوثيقة
-            if processor.enable_upload:
-                info = db_manager.get_processed_document_info(document_id)
-                if info:
-                    print(f"\n📋 معلومات الوثيقة:")
-                    print(f"   📊 الحالة: {info['statistics']['status']}")
-                    print(f"   📑 عدد الصفحات: {info['statistics']['total_pages']}")
-                    print(f"   🔍 عدد الفهارس: {info['statistics']['total_indexes']}")
+            complete_file = json_storage.base_dir / f"{args.single_file.replace('.pdf', '_complete.json')}"
+            if complete_file.exists():
+                print(f"\n📋 معلومات الوثيقة:")
+                print(f"   📊 الحالة: مكتملة")
+                print(f"   💾 ملف البيانات: {complete_file}")
+            else:
+                print(f"\n⚠️ لم يتم العثور على ملف البيانات الكامل")
         except Exception as e:
             print(f"❌ فشل في معالجة الملف: {e}")
     else:

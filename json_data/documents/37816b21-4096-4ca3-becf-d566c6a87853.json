@@ -1,0 +1,13 @@
+{
+  "id": "37816b21-4096-4ca3-becf-d566c6a87853",
+  "filename": "AGA 103_22_1_2025-1.pdf",
+  "original_path": "docs_import\\AGA 103_22_1_2025-1.pdf",
+  "file_size": 32322260,
+  "status": "completed",
+  "created_at": "2025-09-28T20:41:05.015853",
+  "updated_at": "2025-09-28T20:41:56.662913",
+  "metadata": {
+    "processor": "mistral-ocr-latest",
+    "local_storage": true
+  }
+}

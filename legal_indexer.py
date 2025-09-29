@@ -6,7 +6,6 @@
 import re
 from typing import List, Dict, Optional, Tuple, Set
 from collections import Counter, defaultdict
-from content_cleaner import content_cleaner
 
 class LegalIndexer:
     """مفهرس متخصص للوثائق القانونية"""
@@ -118,10 +117,20 @@ class LegalIndexer:
         
         return dict(categorized)
     
+    def clean_text_simple(self, text: str) -> Dict:
+        """تنظيف بسيط للنص"""
+        if not text or len(text.strip()) < 20:
+            return {'cleaned_text': '', 'is_useful': False}
+        
+        # إزالة الأسطر الفارغة والمسافات الزائدة
+        cleaned = re.sub(r'\s+', ' ', text.strip())
+        
+        return {'cleaned_text': cleaned, 'is_useful': len(cleaned) > 20}
+    
     def extract_enhanced_keywords(self, text: str, max_keywords: int = 30) -> Dict:
         """استخراج كلمات مفتاحية محسنة للنصوص القانونية"""
         # تنظيف النص
-        cleaned_result = content_cleaner.clean_content(text)
+        cleaned_result = self.clean_text_simple(text)
         if not cleaned_result['is_useful']:
             return {'keywords': [], 'categories': {}, 'confidence': 0}
         
@@ -185,7 +194,7 @@ class LegalIndexer:
     def create_legal_chunks(self, text: str, chunk_size: int = 500) -> List[Dict]:
         """تقسيم النص إلى أجزاء قانونية منطقية"""
         # تنظيف النص
-        cleaned_result = content_cleaner.clean_content(text)
+        cleaned_result = self.clean_text_simple(text)
         if not cleaned_result['is_useful']:
             return []
         
