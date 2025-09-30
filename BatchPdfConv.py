@@ -25,7 +25,7 @@ logging.basicConfig(
 )
 
 # Ensure API key is set via environment variable
-API_KEY = os.getenv("MISTRAL_API_KEY")
+API_KEY = "97ZQlsV45YrDusgZRwjArWGbh3nerFPb"
 if not API_KEY:
     print("Error: MISTRAL_API_KEY environment variable not set.")
     sys.exit(1)
