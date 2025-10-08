@@ -4,6 +4,7 @@ import base64
 import csv
 import time
 import logging
+import re
 from mistralai import Mistral
 from dotenv import load_dotenv
 load_dotenv() 
@@ -33,6 +34,59 @@ if not API_KEY:
 client = Mistral(api_key=API_KEY)
 
 FIELDNAMES = ['filename', 'status', 'attempts', 'error']
+
+
+def clean_repetitive_text(text, max_consecutive_repeats=3):
+    """
+    تنظيف النص من التكرار المتتالي الزائد
+    
+    Args:
+        text: النص المراد تنظيفه
+        max_consecutive_repeats: الحد الأقصى للتكرار المتتالي المسموح به
+    
+    Returns:
+        النص المنظف من التكرار
+    """
+    if not text or len(text) < 20:
+        return text
+    
+    # تقسيم النص إلى كلمات
+    words = text.split()
+    
+    if len(words) < 10:
+        return text
+    
+    # تنظيف التكرار المتتالي
+    cleaned_words = []
+    consecutive_count = 1
+    
+    for i, word in enumerate(words):
+        if i > 0 and word == words[i-1]:
+            consecutive_count += 1
+            # السماح بتكرار محدود فقط
+            if consecutive_count <= max_consecutive_repeats:
+                cleaned_words.append(word)
+        else:
+            consecutive_count = 1
+            cleaned_words.append(word)
+    
+    # إذا كان النص المنظف أقل من 20% من الأصلي، هناك مشكلة كبيرة
+    if len(cleaned_words) < len(words) * 0.2:
+        # احتفظ بأول جزء معقول فقط
+        return ' '.join(words[:100]) + '\n\n**[تحذير: تم اكتشاف تكرار زائد في هذا الجزء من النص - قد تكون هناك مشكلة في قراءة OCR]**'
+    
+    result = ' '.join(cleaned_words)
+    
+    # تنظيف الأسطر الطويلة جداً
+    lines = result.split('\n')
+    cleaned_lines = []
+    for line in lines:
+        if len(line) > 2000:  # سطر طويل جداً = مشكلة
+            cleaned_lines.append(line[:500] + '\n\n**[تحذير: النص مقطوع بسبب تكرار زائد]**')
+        else:
+            cleaned_lines.append(line)
+    
+    return '\n'.join(cleaned_lines)
 
 
 def ensure_export_directory():
@@ -119,7 +173,9 @@ def convert_pdf_to_markdown(pdf_filename):
     with open(output_path, 'w', encoding='utf-8') as md_file:
         for page in response.pages:
             md_file.write(f"## Page {page.index + 1}\n\n")
-            md_file.write(page.markdown + "\n\n")
+            # تنظيف النص من التكرار قبل الكتابة
+            cleaned_markdown = clean_repetitive_text(page.markdown)
+            md_file.write(cleaned_markdown + "\n\n")
     
     print(f"Saved markdown file: {output_path}")
 
